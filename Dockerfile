@@ -1,33 +1,34 @@
 # Stage 1: Build
 FROM python:3.12-slim AS builder
-WORKDIR /app
+
+# 1. FIX: Use a directory name that matches your game name
+# This forces pygbag to name the archive 'asteroids.apk' automatically
+WORKDIR /asteroids
+
 RUN pip install pygbag
+
+# Copy source code
 COPY . .
 
-# Build the game
-RUN python3 -m pygbag --build .
+# 2. Clean up any leftover builds/APKs from local testing so they don't confuse the build
+RUN rm -rf build/web *.apk
 
-# --- DEBUG STEP ---
-# This will print the exact files generated to your Coolify Build Logs
-RUN echo "⬇⬇⬇⬇ CHECKING BUILD OUTPUT ⬇⬇⬇⬇" && \
-    ls -la /app/build/web && \
-    echo "⬆⬆⬆⬆ END BUILD OUTPUT ⬆⬆⬆⬆"
+# 3. Build using the folder name defaults
+RUN python3 -m pygbag --build .
 
 # Stage 2: Serve
 FROM nginx:alpine
 
 # Copy the build output
-COPY --from=builder /app/build/web /usr/share/nginx/html
+COPY --from=builder /asteroids/build/web /usr/share/nginx/html
 
-# Ensure permissions are correct (sometimes an issue)
-RUN chmod -R 755 /usr/share/nginx/html
-
-# Simple Nginx Config
+# Create Nginx Config (Standardized)
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
     index index.html; \
     \
+    # SECURITY HEADERS \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
@@ -35,11 +36,7 @@ RUN echo 'server { \
         try_files $uri $uri/ =404; \
     } \
     \
-    # catch-all for apk files to force correct MIME type \
-    location ~ \.apk$ { \
-        default_type application/octet-stream; \
-    } \
-    \
+    # Helper for mime types \
     include /etc/nginx/mime.types; \
     types { \
         application/wasm wasm; \
