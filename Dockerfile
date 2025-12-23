@@ -4,31 +4,26 @@ WORKDIR /app
 RUN pip install pygbag
 COPY . .
 
-# Build standard
+# Build
 RUN python3 -m pygbag --build .
-
-# DEBUG: List what was actually built to the build logs
-RUN echo "--- LISTING BUILD OUPUT ---" && ls -la build/web
 
 # Stage 2: Serve
 FROM nginx:alpine
 
-# Copy files
+# Copy the build output
 COPY --from=builder /app/build/web /usr/share/nginx/html
 
-# Overwrite index.html temporarily
-RUN mv /usr/share/nginx/html/index.html /usr/share/nginx/html/game.html
+# This solves the "loader asks for X but file is Y" problem instantly
+RUN cp /usr/share/nginx/html/*.apk /usr/share/nginx/html/app.apk || true
+RUN cp /usr/share/nginx/html/*.apk /usr/share/nginx/html/asteroids.apk || true
 
-# Create Debug Nginx Config
+# Simple Nginx Config with Headers
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
-    index game.html; \
+    index index.html; \
     \
-    # ENABLE DIRECTORY LISTING (For Debugging) \
-    autoindex on; \
-    \
-    # HEADERS \
+    # SECURITY HEADERS \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
