@@ -4,38 +4,36 @@ WORKDIR /app
 RUN pip install pygbag
 COPY . .
 
-# 1. Standard build (This works, but might output 'app.apk' or 'asteroids.apk')
+# Build standard
 RUN python3 -m pygbag --build .
 
-# 2. Force-rename APK was generated to 'game.apk'
-RUN find build/web -name "*.apk" -exec mv {} build/web/game.apk \;
+# DEBUG: List what was actually built to the build logs
+RUN echo "--- LISTING BUILD OUPUT ---" && ls -la build/web
 
 # Stage 2: Serve
 FROM nginx:alpine
 
-# Copy the build output
+# Copy files
 COPY --from=builder /app/build/web /usr/share/nginx/html
 
-# Create Nginx Config
-# "If the browser asks for ANY .apk file, give it game.apk"
+# Overwrite index.html temporarily
+RUN mv /usr/share/nginx/html/index.html /usr/share/nginx/html/game.html
+
+# Create Debug Nginx Config
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
-    index index.html; \
+    index game.html; \
     \
-    # REQUIRED HEADERS \
+    # ENABLE DIRECTORY LISTING (For Debugging) \
+    autoindex on; \
+    \
+    # HEADERS \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
     location / { \
         try_files $uri $uri/ =404; \
-    } \
-    \
-    # THE MAGIC FIX: \
-    # The javascript might ask for "app.apk" or "asteroids.apk". \
-    # We ignore the name and just serve the actual file we renamed to "game.apk". \
-    location ~ \.apk$ { \
-        alias /usr/share/nginx/html/game.apk; \
     } \
     \
     include /etc/nginx/mime.types; \
