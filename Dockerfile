@@ -1,17 +1,23 @@
 # Stage 1: Build
-FROM python:3.12-slim AS builder
+# FIX: Use the full python image (not slim) to ensure all system libs exist
+FROM python:3.12 AS builder
 
-# 1. INSTALL FFMPEG (Required for Pygbag build)
+# Install FFMPEG (Still required)
 RUN apt-get update && apt-get install -y ffmpeg
 
-# 2. Use directory name matching your game
+# Directory setup
 WORKDIR /asteroids
 
+# Install build tool
 RUN pip install pygbag
+
+# Copy source
 COPY . .
 
-# 3. Clean up & Build
+# Clean up any potential artifacts
 RUN rm -rf build/web *.apk
+
+# Build
 RUN python3 -m pygbag --build .
 
 # Stage 2: Serve
@@ -20,18 +26,26 @@ FROM nginx:alpine
 # Copy the build output
 COPY --from=builder /asteroids/build/web /usr/share/nginx/html
 
-# Create Nginx Config
+# Nginx Config
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
     index index.html; \
     \
-    # SECURITY HEADERS \
+    # HEADERS \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
     location / { \
         try_files $uri $uri/ =404; \
+    } \
+    \
+    # Fix for file name mismatch \
+    location ~ \.apk$ { \
+        default_type application/octet-stream; \
+        # If the browser asks for app.apk but we have asteroids.apk (or vice versa), \
+        # we try to serve what exists. \
+        try_files $uri /asteroids.apk /app.apk =404; \
     } \
     \
     include /etc/nginx/mime.types; \
