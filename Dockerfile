@@ -11,12 +11,20 @@ WORKDIR /app
 RUN pip install pygbag
 COPY . .
 
-# 2. Build (Standard /app directory, produces app.apk)
+# 2. CLEAN & PREPARE
+# Remove old builds
 RUN rm -rf build/web *.apk
-RUN python3 -m pygbag --build .
 
-# 3. CRITICAL: Create copies for every possible name the loader might ask for
-# This solves the 404s/mismatches once and for all.
+# Create the directory structure manually to prevent FileNotFoundError
+RUN mkdir -p /app/build/web
+
+# 3. BUILD
+# We use the specific --app_name argument to force the output name
+RUN python3 -m pygbag --app_name asteroids --build $PWD
+
+# 4. SAFETY COPY
+# Create copies for every possible name (app.apk, asteroids.apk, game.apk)
+# This prevents the 404 issue if the loader asks for a different name
 RUN cp build/web/*.apk build/web/app.apk || true
 RUN cp build/web/*.apk build/web/asteroids.apk || true
 RUN cp build/web/*.apk build/web/game.apk || true
@@ -27,24 +35,21 @@ FROM nginx:alpine
 # Copy the build output
 COPY --from=builder /app/build/web /usr/share/nginx/html
 
-# 4. Standard Nginx Config (No Alias Hacks)
-# We removed the 'location /asteroids' and 'location = /apk' hacks.
-# Since we copied the files to match the names, standard serving works.
+# 5. NGINX CONFIG
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
     index index.html; \
     \
-    # SECURITY HEADERS (Mandatory) \
+    # HEADERS \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
-    # Standard file serving \
     location / { \
         try_files $uri $uri/ =404; \
     } \
     \
-    # Force MIME types \
+    # MIME TYPES \
     include /etc/nginx/mime.types; \
     types { \
         application/wasm wasm; \
