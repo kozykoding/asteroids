@@ -1,59 +1,50 @@
-# Stage 1: Build the Game
+# Stage 1: Build
 FROM python:3.12 AS builder
 
-# 1. Install system dependencies (Fixes 'ffmpeg not found')
+# 1. Install dependencies
 RUN apt-get update && \
     apt-get install -y ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# 2. Install Pygbag
-RUN pip install --no-cache-dir pygbag
-
-# 3. Copy source code
+RUN pip install pygbag
 COPY . .
 
-# 4. Clean up any local build artifacts copied over
-RUN rm -rf build
-
-# 5. PRE-CREATE the output directory (Fixes 'FileNotFoundError')
-RUN mkdir -p build/web
-
-# 6. Build the game
+# 2. Build (Standard /app directory, produces app.apk)
+RUN rm -rf build/web *.apk
 RUN python3 -m pygbag --build .
 
-# 7. Force-rename the APK to 'game.apk'
-# This guarantees Nginx finds it, whether Pygbag calls it 'app.apk' or 'asteroids.apk'
-RUN find build/web -name "*.apk" -exec mv {} build/web/game.apk \;
+# 3. CRITICAL: Create copies for every possible name the loader might ask for
+# This solves the 404s/mismatches once and for all.
+RUN cp build/web/*.apk build/web/app.apk || true
+RUN cp build/web/*.apk build/web/asteroids.apk || true
+RUN cp build/web/*.apk build/web/game.apk || true
 
-# Stage 2: Serve with Nginx
+# Stage 2: Serve
 FROM nginx:alpine
 
-# Copy the built web files
+# Copy the build output
 COPY --from=builder /app/build/web /usr/share/nginx/html
 
-# Create Nginx Config
-# Notice we serve 'game.apk' regardless of what the browser asks for
+# 4. Standard Nginx Config (No Alias Hacks)
+# We removed the 'location /asteroids' and 'location = /apk' hacks.
+# Since we copied the files to match the names, standard serving works.
 RUN echo 'server { \
     listen 80; \
     root /usr/share/nginx/html; \
     index index.html; \
     \
-    # SECURITY HEADERS \
+    # SECURITY HEADERS (Mandatory) \
     add_header Cross-Origin-Opener-Policy same-origin always; \
     add_header Cross-Origin-Embedder-Policy credentialless always; \
     \
+    # Standard file serving \
     location / { \
         try_files $uri $uri/ =404; \
     } \
     \
-    # MAGIC FIX: Serve game.apk for ANY apk request \
-    location ~ \.apk$ { \
-        default_type application/octet-stream; \
-        alias /usr/share/nginx/html/game.apk; \
-    } \
-    \
+    # Force MIME types \
     include /etc/nginx/mime.types; \
     types { \
         application/wasm wasm; \
